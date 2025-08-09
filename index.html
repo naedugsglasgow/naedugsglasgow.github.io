@@ -3,101 +3,136 @@
 <head>
 <meta charset="utf-8">
 <title>Nae Dugs Glasgow</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
 <link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet">
 <style>
-  body { margin:0; padding:0; }
-  #map { position:absolute; top:0; bottom:0; width:100%; }
+  body { margin: 0; padding: 0; }
+  #map { position: absolute; top: 0; bottom: 0; width: 100%; }
+  .legend {
+    background: white;
+    padding: 10px;
+    font-family: sans-serif;
+    font-size: 13px;
+    border-radius: 4px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.3);
+    position: absolute;
+    bottom: 20px;
+    left: 20px;
+    z-index: 1;
+    max-width: 200px;
+  }
+  .legend h4 {
+    margin: 0 0 5px;
+  }
+  .legend div {
+    display: flex;
+    align-items: center;
+    margin-bottom: 4px;
+  }
+  .legend span {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    margin-right: 6px;
+    border-radius: 50%;
+    border: 1px solid #ccc;
+  }
 </style>
 </head>
 <body>
-<div id="map"></div>
-<script>
-// ====== SETTINGS ======
-const MAPBOX_TOKEN = 'pk.eyJ1IjoibmFlZHVnc2dsYXNnb3ciLCJhIjoiY21lM2F4ZXJqMDVqcjJpczc4OXlhd2NjaiJ9.x89RmWhqtd4qR_GKMTYccA';
-const AIRTABLE_SHARE_URL = 'https://airtable.com/appJKCKuw6zmTZvYB/shr1lUkLBb1XFaVHp';
 
-// Colour maps
-const venueTypeColors = {
+<div id="map"></div>
+<div class="legend" id="legend">
+  <h4>Policy</h4>
+</div>
+
+<script>
+mapboxgl.accessToken = 'pk.eyJ1IjoibmFlZHVnc2dsYXNnb3ciLCJhIjoiY21lM2F4ZXJqMDVqcjJpczc4OXlhd2NjaiJ9.x89RmWhqtd4qR_GKMTYccA';
+
+// Map init
+const map = new mapboxgl.Map({
+  container: 'map',
+  style: 'mapbox://styles/mapbox/streets-v11',
+  center: [-4.2518, 55.8642],
+  zoom: 12
+});
+
+// Colour mapping for Policy field
+const policyColors = {
+  'Dog-free indoors': '#00FF00',      // Green
+  'Assistance dogs only': '#00FF00',  // Green
+  'Designated pet-free area': '#FFBF00', // Amber
+  'Curfew on dogs': '#FFBF00',        // Amber
+  'Dogs on leads': '#FFBF00',         // Amber
+  'Dog-friendly': '#FF0000'           // Red
+};
+
+// Venue colours (not used in legend, but available for future)
+const venueColors = {
   'Cafe': '#ADD8E6',
   'Pub': '#40E0D0',
   'Bar': '#90EE90',
-  'Outdoors': '#FFA07A',
+  'Outdoors': '#FFA500',
   'Sightseeing': '#FFB6C1',
   'Things to do': '#9370DB',
   'Activity': '#FFC0CB',
   'Venue': '#800080'
 };
 
-const policyColors = {
-  'Dog-free indoors': '#008000',
-  'Assistance dogs only': '#008000',
-  'Designated pet-free area': '#FFBF00',
-  'Curfew on dogs': '#FFBF00',
-  'Dogs on leads': '#FFBF00',
-  'Dog-friendly': '#FF0000'
-};
-
-// ====== MAP SETUP ======
-mapboxgl.accessToken = MAPBOX_TOKEN;
-const map = new mapboxgl.Map({
-  container: 'map',
-  style: 'mapbox://styles/mapbox/streets-v12',
-  center: [-4.2518, 55.8642],
-  zoom: 12
-});
-
-// ====== FETCH + PARSE ======
-// Airtable shared views are HTML tables. We'll fetch and parse.
-async function loadAirtableData() {
-  const proxy = 'https://api.allorigins.win/raw?url=';
-  const encoded = encodeURIComponent(AIRTABLE_SHARE_URL);
-  const res = await fetch(proxy + encoded);
-  const html = await res.text();
-
-  // Create DOM from HTML string
-  const parser = new DOMParser();
-  const doc = parser.parseFromString(html, 'text/html');
-
-  const rows = [...doc.querySelectorAll('table tbody tr')];
-  const data = rows.map(row => {
-    const cells = row.querySelectorAll('td');
-    return {
-      Name: cells[0]?.innerText.trim(),
-      'Venue Type': cells[1]?.innerText.trim(),
-      Address: cells[2]?.innerText.trim(),
-      Latitude: parseFloat(cells[3]?.innerText.trim()),
-      Longitude: parseFloat(cells[4]?.innerText.trim()),
-      Policy: cells[5]?.innerText.trim(),
-      Link: cells[6]?.innerText.trim()
-    };
-  });
-
-  plotData(data);
+// Build legend dynamically from policyColors
+const legend = document.getElementById('legend');
+for (const policy in policyColors) {
+  const color = policyColors[policy];
+  const item = document.createElement('div');
+  const key = document.createElement('span');
+  key.style.backgroundColor = color;
+  const label = document.createElement('span');
+  label.textContent = policy;
+  item.appendChild(key);
+  item.appendChild(label);
+  legend.appendChild(item);
 }
 
-function plotData(records) {
-  records.forEach(fields => {
-    if (!fields.Latitude || !fields.Longitude) return;
+// Fetch Airtable data from Netlify proxy
+fetch('https://naedugsproxy.netlify.app/.netlify/functions/airtable')
+  .then(response => response.json())
+  .then(data => {
+    if (!data.records) {
+      console.error("No records found:", data);
+      return;
+    }
 
-    const popupHTML = `
-      <h3>${fields.Name || ''}</h3>
-      <p><b>Venue Type:</b> <span style="color:${venueTypeColors[fields['Venue Type']] || '#000'}">${fields['Venue Type'] || ''}</span></p>
-      <p><b>Address:</b> ${fields.Address || ''}</p>
-      <p><b>Policy:</b> ${fields.Policy || ''}</p>
-      ${fields.Link ? `<p><a href="${fields.Link}" target="_blank">More info</a></p>` : ''}
-    `;
+    data.records.forEach(record => {
+      const fields = record.fields;
+      if (!fields.Latitude || !fields.Longitude) return;
 
-    new mapboxgl.Marker({ color: policyColors[fields.Policy] || '#000' })
-      .setLngLat([fields.Longitude, fields.Latitude])
-      .setPopup(new mapboxgl.Popup().setHTML(popupHTML))
-      .addTo(map);
-  });
-}
+      const color = policyColors[fields.Policy] || '#000000';
 
-// Load data
-loadAirtableData();
+      // Create marker element
+      const el = document.createElement('div');
+      el.style.backgroundColor = color;
+      el.style.width = '12px';
+      el.style.height = '12px';
+      el.style.borderRadius = '50%';
+      el.style.border = '2px solid white';
+
+      new mapboxgl.Marker(el)
+        .setLngLat([fields.Longitude, fields.Latitude])
+        .setPopup(
+          new mapboxgl.Popup({ offset: 25 }).setHTML(
+            `<strong>${fields.Name}</strong><br>
+             ${fields.Address || ''}<br>
+             <em>${fields.VenueType || ''}</em><br>
+             Policy: ${fields.Policy || ''}<br>
+             <a href="${fields.Link || '#'}" target="_blank">More info</a>`
+          )
+        )
+        .addTo(map);
+    });
+  })
+  .catch(err => console.error("Error fetching Airtable data:", err));
 </script>
+
 </body>
 </html>
