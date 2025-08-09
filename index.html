@@ -14,16 +14,11 @@
 <body>
 <div id="map"></div>
 <script>
-// Mapbox setup
-mapboxgl.accessToken = 'pk.eyJ1IjoibmFlZHVnc2dsYXNnb3ciLCJhIjoiY21lM2F4ZXJqMDVqcjJpczc4OXlhd2NjaiJ9.x89RmWhqtd4qR_GKMTYccA';
-const map = new mapboxgl.Map({
-  container: 'map',
-  style: 'mapbox://styles/mapbox/streets-v12',
-  center: [-4.2518, 55.8642], // Glasgow
-  zoom: 12
-});
+// ====== SETTINGS ======
+const MAPBOX_TOKEN = 'pk.eyJ1IjoibmFlZHVnc2dsYXNnb3ciLCJhIjoiY21lM2F4ZXJqMDVqcjJpczc4OXlhd2NjaiJ9.x89RmWhqtd4qR_GKMTYccA';
+const AIRTABLE_SHARE_URL = 'https://airtable.com/appJKCKuw6zmTZvYB/shr1lUkLBb1XFaVHp';
 
-// Colour mapping
+// Colour maps
 const venueTypeColors = {
   'Cafe': '#ADD8E6',
   'Pub': '#40E0D0',
@@ -44,25 +39,46 @@ const policyColors = {
   'Dog-friendly': '#FF0000'
 };
 
-// Airtable API details
-const AIRTABLE_BASE_ID = 'appJKCKuw6zmTZvYB';
-const AIRTABLE_TABLE_NAME = 'Mapbox';
-const AIRTABLE_TOKEN = 'pk.eyJ1IjoibmFlZHVnc2dsYXNnb3ciLCJhIjoiY21lM2F4ZXJqMDVqcjJpczc4OXlhd2NjaiJ9.x89RmWhqtd4qR_GKMTYccA';
+// ====== MAP SETUP ======
+mapboxgl.accessToken = MAPBOX_TOKEN;
+const map = new mapboxgl.Map({
+  container: 'map',
+  style: 'mapbox://styles/mapbox/streets-v12',
+  center: [-4.2518, 55.8642],
+  zoom: 12
+});
 
-// Fetch data from Airtable API
-async function loadData() {
-  const url = `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/${encodeURIComponent(AIRTABLE_TABLE_NAME)}?maxRecords=500&view=Grid%20view`;
-  const response = await fetch(url, {
-    headers: { Authorization: `Bearer ${AIRTABLE_TOKEN}` }
+// ====== FETCH + PARSE ======
+// Airtable shared views are HTML tables. We'll fetch and parse.
+async function loadAirtableData() {
+  const proxy = 'https://api.allorigins.win/raw?url=';
+  const encoded = encodeURIComponent(AIRTABLE_SHARE_URL);
+  const res = await fetch(proxy + encoded);
+  const html = await res.text();
+
+  // Create DOM from HTML string
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(html, 'text/html');
+
+  const rows = [...doc.querySelectorAll('table tbody tr')];
+  const data = rows.map(row => {
+    const cells = row.querySelectorAll('td');
+    return {
+      Name: cells[0]?.innerText.trim(),
+      'Venue Type': cells[1]?.innerText.trim(),
+      Address: cells[2]?.innerText.trim(),
+      Latitude: parseFloat(cells[3]?.innerText.trim()),
+      Longitude: parseFloat(cells[4]?.innerText.trim()),
+      Policy: cells[5]?.innerText.trim(),
+      Link: cells[6]?.innerText.trim()
+    };
   });
-  const data = await response.json();
-  plotData(data.records);
+
+  plotData(data);
 }
 
-// Plot points on the map
 function plotData(records) {
-  records.forEach(record => {
-    const fields = record.fields;
+  records.forEach(fields => {
     if (!fields.Latitude || !fields.Longitude) return;
 
     const popupHTML = `
@@ -80,9 +96,8 @@ function plotData(records) {
   });
 }
 
-// Run
-loadData();
-
+// Load data
+loadAirtableData();
 </script>
 </body>
 </html>
