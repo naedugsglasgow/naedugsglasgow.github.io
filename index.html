@@ -38,12 +38,13 @@
 <div id="legend" class="legend"></div>
 
 <script>
+// 🔹 Replace this with your restricted public token from Mapbox
 mapboxgl.accessToken = 'pk.eyJ1IjoibmFlZHVnc2dsYXNnb3ciLCJhIjoiY21lM2F4ZXJqMDVqcjJpczc4OXlhd2NjaiJ9.x89RmWhqtd4qR_GKMTYccA';
 
 // Airtable CSV export link
 const airtableCSV = 'https://airtable.com/appJKCKuw6zmTZvYB/shrQDXpd8BzgOGIzr?output=csv';
 
-// Policy → colour mapping (for pin colours)
+// Policy → colour mapping (pin colours)
 const policyColors = {
     'Dog-free indoors': '#00aa00',          // Green
     'Assistance dogs only': '#00aa00',      // Green
@@ -53,19 +54,7 @@ const policyColors = {
     'Dog-friendly': '#ff0000'               // Red
 };
 
-// Venue Type → icon mapping (you must add these PNG files in your repo)
-const venueIcons = {
-    'Cafe': 'cafe.png',               // Light blue
-    'Pub': 'pub.png',                 // Turquoise
-    'Bar': 'bar.png',                 // Light green
-    'Outdoors': 'outdoors.png',       // Light orange
-    'Sightseeing': 'sightseeing.png', // Light pink
-    'Things to do': 'thingstodo.png', // Light purple
-    'Activity': 'activity.png',       // Rose
-    'Venue': 'venue.png'              // Purple
-};
-
-// Venue Type colours for legend
+// Venue Type colours (legend only)
 const venueTypeColors = {
     'Cafe': '#add8e6',          // Light blue
     'Pub': '#40e0d0',           // Turquoise
@@ -90,7 +79,7 @@ function buildLegend() {
         legend.appendChild(item);
     });
 
-    legend.innerHTML += '<br><strong>Venue Type Icons</strong>';
+    legend.innerHTML += '<br><strong>Venue Types</strong>';
     Object.entries(venueTypeColors).forEach(([type, color]) => {
         const item = document.createElement('div');
         const colorBox = document.createElement('span');
@@ -112,7 +101,6 @@ fetch(airtableCSV)
         const lon = parseFloat(row.Longitude);
         if (isNaN(lat) || isNaN(lon)) return null;
 
-        const venueType = venueIcons[row['Venue Type']] ? row['Venue Type'] : 'Venue';
         const policy = row.Policy in policyColors ? row.Policy : 'Dog-friendly';
 
         return {
@@ -123,12 +111,11 @@ fetch(airtableCSV)
             },
             properties: {
                 name: row.Name,
-                venueType: venueType,
+                venueType: row['Venue Type'],
                 address: row.Address,
                 policy: policy,
                 link: row.Link,
-                color: policyColors[policy],
-                icon: venueIcons[venueType]
+                color: policyColors[policy]
             }
         };
     }).filter(Boolean);
@@ -143,54 +130,40 @@ fetch(airtableCSV)
     });
 
     map.on('load', () => {
-        // Load all venue icons
-        const iconPromises = Object.values(venueIcons).map(icon =>
-            new Promise(resolve => {
-                map.loadImage(icon, (error, image) => {
-                    if (error) throw error;
-                    map.addImage(icon, image);
-                    resolve();
-                });
-            })
-        );
+        map.addSource('venues', { type: 'geojson', data: geojson });
 
-        Promise.all(iconPromises).then(() => {
-            map.addSource('venues', { type: 'geojson', data: geojson });
-
-            map.addLayer({
-                id: 'venue-points',
-                type: 'symbol',
-                source: 'venues',
-                layout: {
-                    'icon-image': ['get', 'icon'],
-                    'icon-size': 0.8,
-                    'icon-allow-overlap': true
-                },
-                paint: {
-                    'icon-color': ['get', 'color']
-                }
-            });
-
-            // Popups
-            map.on('click', 'venue-points', e => {
-                const p = e.features[0].properties;
-                new mapboxgl.Popup()
-                    .setLngLat(e.features[0].geometry.coordinates)
-                    .setHTML(`
-                        <strong>${p.name}</strong><br>
-                        ${p.venueType}<br>
-                        ${p.address}<br>
-                        <em>${p.policy}</em><br>
-                        <a href="${p.link}" target="_blank">More Info</a>
-                    `)
-                    .addTo(map);
-            });
-
-            map.on('mouseenter', 'venue-points', () => map.getCanvas().style.cursor = 'pointer');
-            map.on('mouseleave', 'venue-points', () => map.getCanvas().style.cursor = '');
-
-            buildLegend();
+        // Circle layer for pins
+        map.addLayer({
+            id: 'venue-points',
+            type: 'circle',
+            source: 'venues',
+            paint: {
+                'circle-radius': 8,
+                'circle-color': ['get', 'color'],
+                'circle-stroke-width': 1,
+                'circle-stroke-color': '#fff'
+            }
         });
+
+        // Popups
+        map.on('click', 'venue-points', e => {
+            const p = e.features[0].properties;
+            new mapboxgl.Popup()
+                .setLngLat(e.features[0].geometry.coordinates)
+                .setHTML(`
+                    <strong>${p.name}</strong><br>
+                    ${p.venueType}<br>
+                    ${p.address}<br>
+                    <em>${p.policy}</em><br>
+                    <a href="${p.link}" target="_blank">More Info</a>
+                `)
+                .addTo(map);
+        });
+
+        map.on('mouseenter', 'venue-points', () => map.getCanvas().style.cursor = 'pointer');
+        map.on('mouseleave', 'venue-points', () => map.getCanvas().style.cursor = '');
+
+        buildLegend();
     });
 });
 </script>
