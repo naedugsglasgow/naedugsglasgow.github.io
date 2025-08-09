@@ -1,93 +1,173 @@
 <!DOCTYPE html>
 <html>
 <head>
-<meta charset="utf-8" />
-<title>Nae Dugs Glasgow - Dog Policy Map</title>
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
-<link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet" />
+<meta charset="utf-8">
+<title>Nae Dugs Glasgowp</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="https://api.mapbox.com/mapbox-gl-js/v2.13.0/mapbox-gl.js"></script>
+<link href="https://api.mapbox.com/mapbox-gl-js/v2.13.0/mapbox-gl.css" rel="stylesheet">
 <style>
   body { margin:0; padding:0; }
-  #map { position:absolute; top:50px; bottom:0; width:100%; }
-  #filterButtons {
+  #map { position:absolute; top:0; bottom:0; width:100%; }
+  .legend {
+    background-color: white;
+    border-radius: 5px;
+    bottom: 30px;
+    padding: 10px;
+    font-family: sans-serif;
     position: absolute;
-    top: 5px; left: 10px;
-    z-index: 1;
-    background: white;
-    padding: 5px 10px;
-    border-radius: 4px;
-    box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+    left: 10px;
+    font-size: 13px;
+    line-height: 18px;
+    box-shadow: 0 0 5px rgba(0,0,0,0.3);
   }
-  #filterButtons button {
-    margin-right: 5px;
-    cursor: pointer;
+  .legend div { display: flex; align-items: center; margin-bottom: 4px; }
+  .legend span {
+    display: inline-block;
+    width: 14px; height: 14px;
+    margin-right: 6px;
+    border-radius: 50%;
   }
 </style>
 </head>
 <body>
 
-<div id="filterButtons">
-  <button onclick="filterMarkers('all')">All</button>
-  <button onclick="filterMarkers('green')">Completely dog-free</button>
-  <button onclick="filterMarkers('orange')">Dog-free section</button>
-  <button onclick="filterMarkers('red')">Fully dog friendly</button>
-</div>
-
 <div id="map"></div>
+<div id="legend" class="legend"></div>
 
 <script>
-  mapboxgl.accessToken = 'pk.eyJ1IjoibmFlZHVnc2dsYXNnb3ciLCJhIjoiY21lM2F4ZXJqMDVqcjJpczc4OXlhd2NjaiJ9.x89RmWhqtd4qR_GKMTYccA';
-  const map = new mapboxgl.Map({
+mapboxgl.accessToken = 'pk.eyJ1IjoibmFlZHVnc2dsYXNnb3ciLCJhIjoiY21lM2F4ZXJqMDVqcjJpczc4OXlhd2NjaiJ9.x89RmWhqtd4qR_GKMTYccA';
+
+const map = new mapboxgl.Map({
     container: 'map',
-    style: 'mapbox://styles/mapbox/streets-v12',
-    center: [-4.2518, 55.8642], // Glasgow centre
-    zoom: 14
-  });
+    style: 'mapbox://styles/mapbox/streets-v11',
+    center: [-4.2518, 55.8642],
+    zoom: 12
+});
 
-  const markers = {
-    green: [],
-    orange: [],
-    red: []
-  };
+const airtableCSV = 'https://airtable.com/appJKCKuw6zmTZvYB/shrQDXpd8BzgOGIzr?output=csv';
 
-  function addMarker(lng, lat, color, popupHTML) {
-    const marker = new mapboxgl.Marker({ color: color })
-      .setLngLat([lng, lat])
-      .setPopup(new mapboxgl.Popup().setHTML(popupHTML))
-      .addTo(map);
+// Policy colors
+const policyColors = {
+    'Dog-Free': '#ff0000',
+    'Dogs Allowed Outside Only': '#ffa500',
+    'Guide Dogs Only': '#0000ff',
+    'Other': '#808080'
+};
 
-    markers[color].push(marker);
-  }
+// Venue type → icon file mapping
+const venueIcons = {
+    'Café': 'cafe.png',
+    'Bar/Pub': 'bar.png',
+    'Shop': 'shop.png',
+    'Other': 'other.png'
+};
 
-  // Example venue: Ottoman Coffee House (completely dog-free)
-  addMarker(-4.2752199, 55.8651038, 'green', "<b>Ottoman Coffee House</b><br>Completely dog-free venue");
+// Build legend
+function buildLegend() {
+    const legend = document.getElementById('legend');
+    legend.innerHTML = '<strong>Policy</strong>';
+    Object.entries(policyColors).forEach(([policy, color]) => {
+        const item = document.createElement('div');
+        const colorBox = document.createElement('span');
+        colorBox.style.backgroundColor = color;
+        item.appendChild(colorBox);
+        item.appendChild(document.createTextNode(policy));
+        legend.appendChild(item);
+    });
+}
 
-  function filterMarkers(color) {
-    if (color === 'all') {
-      Object.values(markers).flat().forEach(marker => marker.addTo(map));
-    } else {
-      Object.entries(markers).forEach(([key, arr]) => {
-        if (key === color) {
-          arr.forEach(marker => marker.addTo(map));
-        } else {
-          arr.forEach(marker => marker.remove());
-        }
-      });
-    }
-  }
+function parseCSV(str) {
+    const rows = str.trim().split('\n');
+    const headers = rows.shift().split(',');
+    return rows.map(row => {
+        const values = row.split(',');
+        let obj = {};
+        headers.forEach((h, i) => obj[h.trim()] = values[i] ? values[i].trim() : '');
+        return obj;
+    });
+}
+
+fetch(airtableCSV)
+  .then(res => res.text())
+  .then(csvText => {
+    const data = parseCSV(csvText);
+
+    const features = data.map(row => {
+        let venueType = row['Venue Type'];
+        if (!venueIcons[venueType]) venueType = 'Other';
+        return {
+            type: 'Feature',
+            geometry: {
+                type: 'Point',
+                coordinates: [parseFloat(row.Longitude), parseFloat(row.Latitude)]
+            },
+            properties: {
+                name: row.Name,
+                venueType: venueType,
+                address: row.Address,
+                policy: row.Policy,
+                link: row.Link,
+                color: policyColors[row.Policy] || '#aaaaaa',
+                icon: venueIcons[venueType]
+            }
+        };
+    });
+
+    const geojson = { type: 'FeatureCollection', features };
+
+    map.on('load', () => {
+        // Load icons for each venue type
+        const iconPromises = Object.values(venueIcons).map(icon =>
+            new Promise(resolve => {
+                map.loadImage(icon, (error, image) => {
+                    if (error) throw error;
+                    map.addImage(icon, image);
+                    resolve();
+                });
+            })
+        );
+
+        Promise.all(iconPromises).then(() => {
+            map.addSource('dogfree', { type: 'geojson', data: geojson });
+
+            map.addLayer({
+                id: 'dogfree-points',
+                type: 'symbol',
+                source: 'dogfree',
+                layout: {
+                    'icon-image': ['get', 'icon'],
+                    'icon-size': 0.8,
+                    'icon-allow-overlap': true
+                },
+                paint: {
+                    'icon-color': ['get', 'color']
+                }
+            });
+
+            // Popups
+            map.on('click', 'dogfree-points', e => {
+                const p = e.features[0].properties;
+                new mapboxgl.Popup()
+                    .setLngLat(e.features[0].geometry.coordinates)
+                    .setHTML(`
+                        <strong>${p.name}</strong><br>
+                        ${p.venueType}<br>
+                        ${p.address}<br>
+                        <em>${p.policy}</em><br>
+                        <a href="${p.link}" target="_blank">More Info</a>
+                    `)
+                    .addTo(map);
+            });
+
+            map.on('mouseenter', 'dogfree-points', () => map.getCanvas().style.cursor = 'pointer');
+            map.on('mouseleave', 'dogfree-points', () => map.getCanvas().style.cursor = '');
+
+            buildLegend();
+        });
+    });
+});
 </script>
 
 </body>
 </html>
-
-function addMarker(lng, lat, color, popupHTML) {
-  const popupContent = `
-  <div>
-    <h3>Ottoman Coffee House</h3>
-    <p><a href="https://www.ottomancoffeehouse.co.uk/" target="_blank" rel="noopener noreferrer">Visit website</a></p>
-    <p><strong>Dog Policy:</strong> Completely dog-free venue</p>
-  </div>
-`;
-
-addMarker(-4.2752199, 55.8651038, 'green', popupContent);
-}
