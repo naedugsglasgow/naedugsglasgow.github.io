@@ -6,6 +6,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <script src="https://api.mapbox.com/mapbox-gl-js/v2.13.0/mapbox-gl.js"></script>
 <link href="https://api.mapbox.com/mapbox-gl-js/v2.13.0/mapbox-gl.css" rel="stylesheet">
+<script src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>
 <style>
   body { margin:0; padding:0; }
   #map { position:absolute; top:0; bottom:0; width:100%; }
@@ -20,6 +21,7 @@
     font-size: 13px;
     line-height: 18px;
     box-shadow: 0 0 5px rgba(0,0,0,0.3);
+    max-width: 220px;
   }
   .legend div { display: flex; align-items: center; margin-bottom: 4px; }
   .legend span {
@@ -38,35 +40,47 @@
 <script>
 mapboxgl.accessToken = 'pk.eyJ1IjoibmFlZHVnc2dsYXNnb3ciLCJhIjoiY21lM2F4ZXJqMDVqcjJpczc4OXlhd2NjaiJ9.x89RmWhqtd4qR_GKMTYccA';
 
-const map = new mapboxgl.Map({
-    container: 'map',
-    style: 'mapbox://styles/mapbox/streets-v11',
-    center: [-4.2518, 55.8642],
-    zoom: 12
-});
-
+// Airtable CSV export link
 const airtableCSV = 'https://airtable.com/appJKCKuw6zmTZvYB/shrQDXpd8BzgOGIzr?output=csv';
 
-// Policy colors
+// Policy → colour mapping (for pin colours)
 const policyColors = {
-    'Dog-Free': '#ff0000',
-    'Dogs Allowed Outside Only': '#ffa500',
-    'Guide Dogs Only': '#0000ff',
-    'Other': '#808080'
+    'Dog-free indoors': '#00aa00',          // Green
+    'Assistance dogs only': '#00aa00',      // Green
+    'Designated pet-free area': '#ffbf00',  // Amber
+    'Curfew on dogs': '#ffbf00',            // Amber
+    'Dogs on leads': '#ffbf00',             // Amber
+    'Dog-friendly': '#ff0000'               // Red
 };
 
-// Venue type → icon file mapping
+// Venue Type → icon mapping (you must add these PNG files in your repo)
 const venueIcons = {
-    'Café': 'cafe.png',
-    'Bar/Pub': 'bar.png',
-    'Shop': 'shop.png',
-    'Other': 'other.png'
+    'Cafe': 'cafe.png',               // Light blue
+    'Pub': 'pub.png',                 // Turquoise
+    'Bar': 'bar.png',                 // Light green
+    'Outdoors': 'outdoors.png',       // Light orange
+    'Sightseeing': 'sightseeing.png', // Light pink
+    'Things to do': 'thingstodo.png', // Light purple
+    'Activity': 'activity.png',       // Rose
+    'Venue': 'venue.png'              // Purple
+};
+
+// Venue Type colours for legend
+const venueTypeColors = {
+    'Cafe': '#add8e6',          // Light blue
+    'Pub': '#40e0d0',           // Turquoise
+    'Bar': '#90ee90',           // Light green
+    'Outdoors': '#ffcc99',      // Light orange
+    'Sightseeing': '#ffb6c1',   // Light pink
+    'Things to do': '#c8a2c8',  // Light purple
+    'Activity': '#ff007f',      // Rose
+    'Venue': '#800080'          // Purple
 };
 
 // Build legend
 function buildLegend() {
     const legend = document.getElementById('legend');
-    legend.innerHTML = '<strong>Policy</strong>';
+    legend.innerHTML = '<strong>Policy Colours</strong>';
     Object.entries(policyColors).forEach(([policy, color]) => {
         const item = document.createElement('div');
         const colorBox = document.createElement('span');
@@ -75,49 +89,61 @@ function buildLegend() {
         item.appendChild(document.createTextNode(policy));
         legend.appendChild(item);
     });
-}
 
-function parseCSV(str) {
-    const rows = str.trim().split('\n');
-    const headers = rows.shift().split(',');
-    return rows.map(row => {
-        const values = row.split(',');
-        let obj = {};
-        headers.forEach((h, i) => obj[h.trim()] = values[i] ? values[i].trim() : '');
-        return obj;
+    legend.innerHTML += '<br><strong>Venue Type Icons</strong>';
+    Object.entries(venueTypeColors).forEach(([type, color]) => {
+        const item = document.createElement('div');
+        const colorBox = document.createElement('span');
+        colorBox.style.backgroundColor = color;
+        item.appendChild(colorBox);
+        item.appendChild(document.createTextNode(type));
+        legend.appendChild(item);
     });
 }
 
 fetch(airtableCSV)
   .then(res => res.text())
   .then(csvText => {
-    const data = parseCSV(csvText);
+    const parsed = Papa.parse(csvText, { header: true, skipEmptyLines: true });
+    const data = parsed.data;
 
     const features = data.map(row => {
-        let venueType = row['Venue Type'];
-        if (!venueIcons[venueType]) venueType = 'Other';
+        const lat = parseFloat(row.Latitude);
+        const lon = parseFloat(row.Longitude);
+        if (isNaN(lat) || isNaN(lon)) return null;
+
+        const venueType = venueIcons[row['Venue Type']] ? row['Venue Type'] : 'Venue';
+        const policy = row.Policy in policyColors ? row.Policy : 'Dog-friendly';
+
         return {
             type: 'Feature',
             geometry: {
                 type: 'Point',
-                coordinates: [parseFloat(row.Longitude), parseFloat(row.Latitude)]
+                coordinates: [lon, lat]
             },
             properties: {
                 name: row.Name,
                 venueType: venueType,
                 address: row.Address,
-                policy: row.Policy,
+                policy: policy,
                 link: row.Link,
-                color: policyColors[row.Policy] || '#aaaaaa',
+                color: policyColors[policy],
                 icon: venueIcons[venueType]
             }
         };
-    });
+    }).filter(Boolean);
 
     const geojson = { type: 'FeatureCollection', features };
 
+    const map = new mapboxgl.Map({
+        container: 'map',
+        style: 'mapbox://styles/mapbox/streets-v11',
+        center: [-4.2518, 55.8642], // Glasgow
+        zoom: 12
+    });
+
     map.on('load', () => {
-        // Load icons for each venue type
+        // Load all venue icons
         const iconPromises = Object.values(venueIcons).map(icon =>
             new Promise(resolve => {
                 map.loadImage(icon, (error, image) => {
@@ -129,12 +155,12 @@ fetch(airtableCSV)
         );
 
         Promise.all(iconPromises).then(() => {
-            map.addSource('dogfree', { type: 'geojson', data: geojson });
+            map.addSource('venues', { type: 'geojson', data: geojson });
 
             map.addLayer({
-                id: 'dogfree-points',
+                id: 'venue-points',
                 type: 'symbol',
-                source: 'dogfree',
+                source: 'venues',
                 layout: {
                     'icon-image': ['get', 'icon'],
                     'icon-size': 0.8,
@@ -146,7 +172,7 @@ fetch(airtableCSV)
             });
 
             // Popups
-            map.on('click', 'dogfree-points', e => {
+            map.on('click', 'venue-points', e => {
                 const p = e.features[0].properties;
                 new mapboxgl.Popup()
                     .setLngLat(e.features[0].geometry.coordinates)
@@ -160,8 +186,8 @@ fetch(airtableCSV)
                     .addTo(map);
             });
 
-            map.on('mouseenter', 'dogfree-points', () => map.getCanvas().style.cursor = 'pointer');
-            map.on('mouseleave', 'dogfree-points', () => map.getCanvas().style.cursor = '');
+            map.on('mouseenter', 'venue-points', () => map.getCanvas().style.cursor = 'pointer');
+            map.on('mouseleave', 'venue-points', () => map.getCanvas().style.cursor = '');
 
             buildLegend();
         });
