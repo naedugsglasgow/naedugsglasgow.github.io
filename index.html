@@ -3,171 +3,86 @@
 <head>
 <meta charset="utf-8">
 <title>Nae Dugs Glasgow</title>
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<script src="https://api.mapbox.com/mapbox-gl-js/v2.13.0/mapbox-gl.js"></script>
-<link href="https://api.mapbox.com/mapbox-gl-js/v2.13.0/mapbox-gl.css" rel="stylesheet">
-<script src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
+<link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet">
 <style>
   body { margin:0; padding:0; }
   #map { position:absolute; top:0; bottom:0; width:100%; }
-  .legend {
-    background-color: white;
-    border-radius: 5px;
-    bottom: 30px;
-    padding: 10px;
-    font-family: sans-serif;
-    position: absolute;
-    left: 10px;
-    font-size: 13px;
-    line-height: 18px;
-    box-shadow: 0 0 5px rgba(0,0,0,0.3);
-    max-width: 220px;
-  }
-  .legend div { display: flex; align-items: center; margin-bottom: 4px; }
-  .legend span {
-    display: inline-block;
-    width: 14px; height: 14px;
-    margin-right: 6px;
-    border-radius: 50%;
-  }
 </style>
 </head>
 <body>
-
 <div id="map"></div>
-<div id="legend" class="legend"></div>
-
 <script>
-// 🔹 Replace this with your restricted public token from Mapbox
-mapboxgl.accessToken = 'mapboxgl.accessToken = 'pk.your-unrestricted-public-token';
-';
+// Mapbox setup
+mapboxgl.accessToken = 'pk.eyJ1IjoibmFlZHVnc2dsYXNnb3ciLCJhIjoiY21lM2F4ZXJqMDVqcjJpczc4OXlhd2NjaiJ9.x89RmWhqtd4qR_GKMTYccA';
+const map = new mapboxgl.Map({
+  container: 'map',
+  style: 'mapbox://styles/mapbox/streets-v12',
+  center: [-4.2518, 55.8642], // Glasgow
+  zoom: 12
+});
 
-// Airtable CSV export link
-const airtableCSV = 'https://airtable.com/appJKCKuw6zmTZvYB/shrQDXpd8BzgOGIzr?output=csv';
-
-// Policy → colour mapping (pin colours)
-const policyColors = {
-    'Dog-free indoors': '#00aa00',          // Green
-    'Assistance dogs only': '#00aa00',      // Green
-    'Designated pet-free area': '#ffbf00',  // Amber
-    'Curfew on dogs': '#ffbf00',            // Amber
-    'Dogs on leads': '#ffbf00',             // Amber
-    'Dog-friendly': '#ff0000'               // Red
-};
-
-// Venue Type colours (legend only)
+// Colour mapping
 const venueTypeColors = {
-    'Cafe': '#add8e6',          // Light blue
-    'Pub': '#40e0d0',           // Turquoise
-    'Bar': '#90ee90',           // Light green
-    'Outdoors': '#ffcc99',      // Light orange
-    'Sightseeing': '#ffb6c1',   // Light pink
-    'Things to do': '#c8a2c8',  // Light purple
-    'Activity': '#ff007f',      // Rose
-    'Venue': '#800080'          // Purple
+  'Cafe': '#ADD8E6',
+  'Pub': '#40E0D0',
+  'Bar': '#90EE90',
+  'Outdoors': '#FFA07A',
+  'Sightseeing': '#FFB6C1',
+  'Things to do': '#9370DB',
+  'Activity': '#FFC0CB',
+  'Venue': '#800080'
 };
 
-// Build legend
-function buildLegend() {
-    const legend = document.getElementById('legend');
-    legend.innerHTML = '<strong>Policy Colours</strong>';
-    Object.entries(policyColors).forEach(([policy, color]) => {
-        const item = document.createElement('div');
-        const colorBox = document.createElement('span');
-        colorBox.style.backgroundColor = color;
-        item.appendChild(colorBox);
-        item.appendChild(document.createTextNode(policy));
-        legend.appendChild(item);
-    });
+const policyColors = {
+  'Dog-free indoors': '#008000',
+  'Assistance dogs only': '#008000',
+  'Designated pet-free area': '#FFBF00',
+  'Curfew on dogs': '#FFBF00',
+  'Dogs on leads': '#FFBF00',
+  'Dog-friendly': '#FF0000'
+};
 
-    legend.innerHTML += '<br><strong>Venue Types</strong>';
-    Object.entries(venueTypeColors).forEach(([type, color]) => {
-        const item = document.createElement('div');
-        const colorBox = document.createElement('span');
-        colorBox.style.backgroundColor = color;
-        item.appendChild(colorBox);
-        item.appendChild(document.createTextNode(type));
-        legend.appendChild(item);
-    });
+// Airtable API details
+const AIRTABLE_BASE_ID = 'appJKCKuw6zmTZvYB';
+const AIRTABLE_TABLE_NAME = 'Mapbox';
+const AIRTABLE_TOKEN = 'pk.eyJ1IjoibmFlZHVnc2dsYXNnb3ciLCJhIjoiY21lM2F4ZXJqMDVqcjJpczc4OXlhd2NjaiJ9.x89RmWhqtd4qR_GKMTYccA';
+
+// Fetch data from Airtable API
+async function loadData() {
+  const url = `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/${encodeURIComponent(AIRTABLE_TABLE_NAME)}?maxRecords=500&view=Grid%20view`;
+  const response = await fetch(url, {
+    headers: { Authorization: `Bearer ${AIRTABLE_TOKEN}` }
+  });
+  const data = await response.json();
+  plotData(data.records);
 }
 
-fetch(airtableCSV)
-  .then(res => res.text())
-  .then(csvText => {
-    const parsed = Papa.parse(csvText, { header: true, skipEmptyLines: true });
-    const data = parsed.data;
+// Plot points on the map
+function plotData(records) {
+  records.forEach(record => {
+    const fields = record.fields;
+    if (!fields.Latitude || !fields.Longitude) return;
 
-    const features = data.map(row => {
-        const lat = parseFloat(row.Latitude);
-        const lon = parseFloat(row.Longitude);
-        if (isNaN(lat) || isNaN(lon)) return null;
+    const popupHTML = `
+      <h3>${fields.Name || ''}</h3>
+      <p><b>Venue Type:</b> <span style="color:${venueTypeColors[fields['Venue Type']] || '#000'}">${fields['Venue Type'] || ''}</span></p>
+      <p><b>Address:</b> ${fields.Address || ''}</p>
+      <p><b>Policy:</b> ${fields.Policy || ''}</p>
+      ${fields.Link ? `<p><a href="${fields.Link}" target="_blank">More info</a></p>` : ''}
+    `;
 
-        const policy = row.Policy in policyColors ? row.Policy : 'Dog-friendly';
+    new mapboxgl.Marker({ color: policyColors[fields.Policy] || '#000' })
+      .setLngLat([fields.Longitude, fields.Latitude])
+      .setPopup(new mapboxgl.Popup().setHTML(popupHTML))
+      .addTo(map);
+  });
+}
 
-        return {
-            type: 'Feature',
-            geometry: {
-                type: 'Point',
-                coordinates: [lon, lat]
-            },
-            properties: {
-                name: row.Name,
-                venueType: row['Venue Type'],
-                address: row.Address,
-                policy: policy,
-                link: row.Link,
-                color: policyColors[policy]
-            }
-        };
-    }).filter(Boolean);
+// Run
+loadData();
 
-    const geojson = { type: 'FeatureCollection', features };
-
-    const map = new mapboxgl.Map({
-        container: 'map',
-        style: 'mapbox://styles/mapbox/streets-v11',
-        center: [-4.2518, 55.8642], // Glasgow
-        zoom: 12
-    });
-
-    map.on('load', () => {
-        map.addSource('venues', { type: 'geojson', data: geojson });
-
-        // Circle layer for pins
-        map.addLayer({
-            id: 'venue-points',
-            type: 'circle',
-            source: 'venues',
-            paint: {
-                'circle-radius': 8,
-                'circle-color': ['get', 'color'],
-                'circle-stroke-width': 1,
-                'circle-stroke-color': '#fff'
-            }
-        });
-
-        // Popups
-        map.on('click', 'venue-points', e => {
-            const p = e.features[0].properties;
-            new mapboxgl.Popup()
-                .setLngLat(e.features[0].geometry.coordinates)
-                .setHTML(`
-                    <strong>${p.name}</strong><br>
-                    ${p.venueType}<br>
-                    ${p.address}<br>
-                    <em>${p.policy}</em><br>
-                    <a href="${p.link}" target="_blank">More Info</a>
-                `)
-                .addTo(map);
-        });
-
-        map.on('mouseenter', 'venue-points', () => map.getCanvas().style.cursor = 'pointer');
-        map.on('mouseleave', 'venue-points', () => map.getCanvas().style.cursor = '');
-
-        buildLegend();
-    });
-});
 </script>
-
 </body>
 </html>
